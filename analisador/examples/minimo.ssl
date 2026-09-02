@@ -1,0 +1,5 @@
+function demo(x: integer): integer {
+    var s: string;
+    s = "ok";
+    x = x + 10;
+}

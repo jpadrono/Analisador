@@ -1,0 +1,23 @@
+type Vetor = array [10] of integer
+type Pessoa = struct { idade: integer; inicial: char }
+
+function maior(a: integer, b: integer): integer {
+    var resultado: integer;
+    if (a >= b) resultado = a; else resultado = b;
+    while (resultado < 100) resultado = resultado++;
+}
+
+function exemplo(flag: boolean, texto: string): integer {
+    var i: integer;
+    var letra: char;
+    i = 0;
+    letra = 'A';
+    texto = "fim";
+    do {
+        var passo: integer;
+        i = i + 1;
+        passo = 1;
+        if (flag && true || false) continue;
+    } while (i != 10);
+    texto[i] = letra;
+}

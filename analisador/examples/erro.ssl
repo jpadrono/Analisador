@@ -1,0 +1,5 @@
+function teste(valor: integer): integer {
+    var nome_invalido: string;
+    valor = valor & 2;
+    nome = "string sem fechamento;
+}
