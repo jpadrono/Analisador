@@ -20,6 +20,7 @@ enum class TokenKind {
     IF,
     INTEGER,
     OF,
+    RETURN,
     STRING,
     STRUCT,
     TRUE_LITERAL,

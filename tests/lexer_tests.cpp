@@ -47,11 +47,11 @@ void testKeywords() {
     expectKinds(
         "palavras reservadas",
         "array boolean break char continue do else false function if integer "
-        "of string struct true type var while",
+        "of return string struct true type var while",
         {TokenKind::ARRAY, TokenKind::BOOLEAN, TokenKind::BREAK,
          TokenKind::CHAR, TokenKind::CONTINUE, TokenKind::DO,
          TokenKind::ELSE, TokenKind::FALSE_LITERAL, TokenKind::FUNCTION,
-         TokenKind::IF, TokenKind::INTEGER, TokenKind::OF, TokenKind::STRING,
+         TokenKind::IF, TokenKind::INTEGER, TokenKind::OF, TokenKind::RETURN, TokenKind::STRING,
          TokenKind::STRUCT, TokenKind::TRUE_LITERAL, TokenKind::TYPE,
          TokenKind::VAR, TokenKind::WHILE});
 }

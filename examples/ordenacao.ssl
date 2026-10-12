@@ -1,0 +1,39 @@
+type intArray = array [30] of integer
+type Ponto = struct { x, y: integer; nome: string }
+type Pontos = array [10] of Ponto
+
+function bSort(a: intArray, n: integer): intArray {
+    var i, j, v: integer;
+    i = 0;
+    while (i < n) {
+        var limite: integer;
+        j = i + 1;
+        while (j < n) {
+            var trocou: boolean;
+            trocou = false;
+            if (a[i] > a[j]) {
+                var aux: integer;
+                v = a[i];
+                a[i] = a[j];
+                a[j] = v;
+                trocou = true;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return a;
+}
+
+function maiorX(p: Pontos, n: integer): integer {
+    var i, m: integer;
+    i = 0;
+    m = p[0].x;
+    do {
+        var atual: Ponto;
+        atual = p[i];
+        if (atual.x > m) m = atual.x;
+        if (atual.nome == "fim") break;
+    } while (++i < n);
+    return m;
+}

@@ -46,6 +46,7 @@ const std::unordered_map<std::string, TokenKind> KEYWORDS = {
     {"if", TokenKind::IF},
     {"integer", TokenKind::INTEGER},
     {"of", TokenKind::OF},
+    {"return", TokenKind::RETURN},
     {"string", TokenKind::STRING},
     {"struct", TokenKind::STRUCT},
     {"true", TokenKind::TRUE_LITERAL},
@@ -367,6 +368,7 @@ std::string tokenKindName(TokenKind kind) {
         case TokenKind::IF: return "IF";
         case TokenKind::INTEGER: return "INTEGER";
         case TokenKind::OF: return "OF";
+        case TokenKind::RETURN: return "RETURN";
         case TokenKind::STRING: return "STRING";
         case TokenKind::STRUCT: return "STRUCT";
         case TokenKind::TRUE_LITERAL: return "TRUE";

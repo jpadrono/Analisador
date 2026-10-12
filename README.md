@@ -1,201 +1,200 @@
-# Analisador léxico da Simple Script Language
+# Compilador da Simple Script Language: VE
 
-Este diretório contém a análise pedida, a implementação funcional em C++11, exemplos e testes. As fontes primárias consultadas foram `../Gramática.pdf` (uma página) e `../Compiladoresv1.2.1.pdf` (105 páginas). O nome do segundo arquivo diverge do nome `Compiladoresv1.2.3_analise-lexica` citado no enunciado; como não há arquivo com esse nome na pasta, o PDF disponível foi adotado como a fonte teórica correspondente.
+Continuação da VC: a versão entregue na VC (só o analisador léxico) está na tag `VC` deste repositório. Esta entrega (VE) acrescenta as fases de análise do compilador da SSL em C++11: **análise sintática, análise de escopo e análise de tipos**. A geração de código fica para a VF.
 
-## 1. Entendimento da linguagem
+Fontes: a gramática fornecida pelo professor (`Gramática.pdf`) e os capítulos 3 a 6 do livro *Compiladores* v1.2.3 (Prof. Luiz Guedes).
 
-O capítulo 2 do livro define análise léxica como a fase que lê caracteres, reconhece lexemas válidos e associa cada lexema a um token. Ele também distingue o token principal (a categoria sintática) do token secundário usado para diferenciar identificadores e constantes da mesma categoria. As páginas 5 a 8 apresentam a Simple Script Language; as páginas 8 a 12 fornecem as expressões regulares, a enumeração de tokens e um esboço do autômato do lexer.
+## 1. Entendimento
 
-O arquivo `Gramática.pdf` fornece a gramática usada no trabalho. Seus terminais literais determinam as palavras reservadas, os operadores e os delimitadores. Os símbolos `Id`, `n`, `c` e `s` são as quatro famílias regulares que o lexer deve reconhecer. Os demais símbolos, como `P`, `LDE`, `S`, `E`, `LV`, `IDD` e `IDU`, são não terminais e pertencem ao analisador sintático, não constituindo novos tokens léxicos.
+O analisador faz uma única passada dirigida pela sintaxe, como no livro:
 
-O programa implementado percorre diretamente os caracteres da entrada. Ele não usa gerador de lexer, expressão regular pronta nem biblioteca que realize a tokenização.
+```
+fonte ─► Lexer (VC) ─► tokens ─► parser la-LR(1) ──redução da regra r──► Semantics(r)
+                                   (fig. 4.6)                             ├─ escopo (cap. 5)
+                                                                          └─ tipos  (cap. 6)
+```
 
-## 2. Tokens
+- **Sintático (cap. 3.8 e 4.1):** autômato de pilha ascendente la-LR(1) dirigido pela tabela `Action[estado][símbolo]`. A cada redução, chama `Semantics(regra)`, que lê os atributos do lado direito na pilha semântica e empilha o atributo do lado esquerdo.
+- **Escopo (cap. 5):** tabela de símbolos como pilha de blocos. Os não terminais `IDD` e `IDU` distinguem declaração e uso.
+- **Tipos (cap. 6):** cada identificador tem um *kind* e um objeto de tipo. As expressões sintetizam `type`, e cada regra verifica os seus operandos.
 
-| Token | Lexema ou padrão | Categoria | Observação |
-|---|---|---|---|
-| `ARRAY` | `array` | palavra reservada | declaração de array |
-| `BOOLEAN` | `boolean` | palavra reservada | tipo escalar |
-| `BREAK` | `break` | palavra reservada | controle de repetição |
-| `CHAR` | `char` | palavra reservada | tipo escalar |
-| `CONTINUE` | `continue` | palavra reservada | controle de repetição |
-| `DO` | `do` | palavra reservada | repetição pós-testada |
-| `ELSE` | `else` | palavra reservada | alternativa de seleção |
-| `FALSE` | `false` | palavra reservada/literal booleano | terminal de `FALSE` |
-| `FUNCTION` | `function` | palavra reservada | declaração de função |
-| `IF` | `if` | palavra reservada | seleção |
-| `INTEGER` | `integer` | palavra reservada | tipo escalar |
-| `OF` | `of` | palavra reservada | tipo do elemento do array |
-| `STRING` | `string` | palavra reservada | tipo escalar |
-| `STRUCT` | `struct` | palavra reservada | declaração de estrutura |
-| `TRUE` | `true` | palavra reservada/literal booleano | terminal de `TRUE` |
-| `TYPE` | `type` | palavra reservada | declaração de tipo |
-| `VAR` | `var` | palavra reservada | declaração de variável |
-| `WHILE` | `while` | palavra reservada | repetição |
-| `ID` | `[A-Za-z][A-Za-z0-9]*` | identificador | recebe índice na tabela de identificadores |
-| `NUMERAL` | `[0-9]+` | literal inteiro | recebe índice na tabela de constantes |
-| `CHARACTER` | `'` + um caractere + `'` | literal caractere | exatamente um caractere, sem regra de escape |
-| `STRINGVAL` | `"` + zero ou mais caracteres + `"` | literal string | termina na próxima aspa dupla; pode ser vazia |
-| `EQUALS` | `=` | operador | atribuição |
-| `AND` | `&&` | operador lógico | `&` isolado é erro |
-| `OR` | `\|\|` | operador lógico | `\|` isolado é erro |
-| `LESS_THAN` | `<` | operador relacional | — |
-| `GREATER_THAN` | `>` | operador relacional | — |
-| `LESS_OR_EQUAL` | `<=` | operador relacional | reconhecido antes de `<` por maximal munch |
-| `GREATER_OR_EQUAL` | `>=` | operador relacional | reconhecido antes de `>` por maximal munch |
-| `EQUAL_EQUAL` | `==` | operador relacional | reconhecido antes de `=` por maximal munch |
-| `NOT_EQUAL` | `!=` | operador relacional | reconhecido antes de `!` por maximal munch |
-| `PLUS` | `+` | operador aritmético | — |
-| `PLUS_PLUS` | `++` | operador de incremento | prefixo ou sufixo na gramática |
-| `MINUS` | `-` | operador aritmético/unário | o sinal não integra `NUMERAL` |
-| `MINUS_MINUS` | `--` | operador de decremento | prefixo ou sufixo na gramática |
-| `TIMES` | `*` | operador aritmético | — |
-| `DIVIDE` | `/` | operador aritmético | não inicia comentário, pois comentários não foram definidos |
-| `NOT` | `!` | operador lógico unário | — |
-| `COLON` | `:` | delimitador | — |
-| `SEMI_COLON` | `;` | delimitador | — |
-| `COMMA` | `,` | delimitador | — |
-| `LEFT_SQUARE` | `[` | delimitador | — |
-| `RIGHT_SQUARE` | `]` | delimitador | — |
-| `LEFT_BRACES` | `{` | delimitador | — |
-| `RIGHT_BRACES` | `}` | delimitador | — |
-| `LEFT_PARENTHESIS` | `(` | delimitador | — |
-| `RIGHT_PARENTHESIS` | `)` | delimitador | — |
-| `DOT` | `.` | delimitador/acesso | acesso a campo de estrutura |
-| `EOF` | fim físico do arquivo | controle do lexer | não é um lexema escrito nem o caractere `$` |
+| Arquivo | Conteúdo |
+|---|---|
+| `src/lexer.*` | lexer da VC, mais a palavra reservada `return` |
+| `src/lalr.*` | construção da tabela la-LR(1) a partir de qualquer gramática |
+| `src/compiler.*` | gramática da SSL, driver da fig. 4.6 e `Semantics()` com escopo e tipos |
+| `src/main.cpp` | linha de comando |
+| `tests/lexer_tests.cpp` | testes da VC |
+| `tests/compiler_tests.cpp` | tabela, programas válidos, um caso para cada erro e regras de escopo |
 
-Espaço, tabulação vertical ou horizontal, avanço de página e quebras `LF`, `CR` ou `CRLF` são separadores ignorados. Eles apenas atualizam linha e coluna.
+## 2. Gramática efetivamente usada
 
-## 3. Regras léxicas
+É a de `Gramática.pdf`, acrescida dos marcadores semânticos (regras ε) que o livro introduz nos caps. 5 e 6 para executar ações no meio de uma regra:
 
-1. O lexer ignora separadores e observa o primeiro caractere ainda não consumido.
-2. Uma letra ASCII inicia `ID`; letras e dígitos seguintes são consumidos. O lexema completo é então procurado na tabela de palavras reservadas. A busca só ocorre depois da leitura completa, portanto `integer2` é `ID`, não `INTEGER NUMERAL`.
-3. Um dígito inicia `NUMERAL`, e todos os dígitos consecutivos são consumidos. Não se impõe limite numérico que a gramática não tenha especificado; o valor é preservado como texto na tabela de constantes.
-4. Aspa simples inicia `CHARACTER`. Deve haver exatamente um caractere antes da aspa final.
-5. Aspa dupla inicia `STRINGVAL`. O lexer consome até a próxima aspa dupla, inclusive através de quebra de linha, porque `any` foi definido como qualquer caractere lido do arquivo.
-6. Operadores com dois caracteres são reconhecidos pelo princípio do maior prefixo válido: `++`, `--`, `&&`, `||`, `<=`, `>=`, `==` e `!=` têm precedência léxica sobre suas formas de um caractere.
-7. Um caractere que não inicia token válido gera erro com linha, coluna e lexema. A análise continua quando existe um ponto seguro de recuperação. String não terminada consome até o EOF.
-8. Identificadores repetidos reutilizam o mesmo token secundário. Cada ocorrência de literal recebe uma entrada na tabela de constantes, como sugerido pela implementação teórica.
+```
+START → P                         T  → 'integer' | 'char' | 'boolean' | 'string' | IDU
+P   → LDE                         DT → 'type' IDD '=' 'array' '[' NUM ']' 'of' T
+LDE → LDE DE | DE                    | 'type' IDD '=' 'struct' NB '{' DC '}'
+DE  → DF | DT                        | 'type' IDD '=' T
+DC  → DC ';' LI ':' T | LI ':' T
+DF  → 'function' IDD NB '(' LP ')' ':' T MF B
+LP  → LP ',' IDD ':' T | IDD ':' T
+B   → '{' LDV LS '}'              LDV → LDV DV | DV            LS → LS S | S
+DV  → 'var' LI ':' T ';'          LI  → LI ',' IDD | IDD
+S   → 'if' '(' E ')' S
+    | 'if' '(' E ')' S 'else' S
+    | 'while' MW '(' E ')' S
+    | 'do' MW S 'while' '(' E ')' ';'
+    | NB B
+    | LV '=' E ';'
+    | 'break' ';' | 'continue' ';'
+    | 'return' E ';'                                   ← extensão (ver §6)
+E → E '&&' L | E '||' L | L
+L → L '<' R | L '>' R | L '<=' R | L '>=' R | L '==' R | L '!=' R | R
+R → R '+' Y | R '-' Y | Y         Y → Y '*' F | Y '/' F | F
+F → LV | '++' LV | '--' LV | LV '++' | LV '--' | '(' E ')' | IDU MC '(' LE ')'
+  | '-' F | '!' F | TRUE | FALSE | CHR | STR | NUM
+LE → LE ',' E | E
+LV → LV '.' ID | LV '[' E ']' | IDU                     ← ID no campo (cap. 5)
+IDD → Id   IDU → Id   ID → Id   TRUE → 'true'   FALSE → 'false'   CHR → c   STR → s   NUM → n
+NB → ε   MF → ε   MW → ε   MC → ε
+```
 
-Palavras reservadas são sensíveis a maiúsculas e minúsculas: `while` é reservada, mas `While` é um `ID`.
+| Marcador | Origem | Ação |
+|---|---|---|
+| `NB` | figs. 5.9, 5.10, 6.11, 6.14 | `NewBlock()` antes dos parâmetros da função, dos campos da struct e do bloco-comando |
+| `MF` | fig. 6.13 | preenche kind, retorno e parâmetros da função antes do corpo, o que permite recursão |
+| `MW` | fig. 7.22 (adaptado) | conta os laços abertos, para acusar `break`/`continue` fora de laço |
+| `MC` | fig. 6.23 | confere se o identificador chamado é função e guarda os seus parâmetros |
 
-## 4. Decisões e ambiguidades
+## 3. Análise sintática
 
-- **Nome da fonte teórica:** o arquivo citado no pedido não existe. Foi usado integralmente `Compiladoresv1.2.1.pdf`, o único PDF teórico disponível.
-- **`IDD` e `IDU`:** distinguem declaração e uso apenas nas fases sintática/semântica. Ambos derivam `Id`; o lexer emite somente `ID`.
-- **`'T'` em `DC`:** a produção dos campos escreve `LI ':' 'T'`, mas `T` é um não terminal definido, e os capítulos de atributos consultam `T.type`. Isso foi tratado como erro tipográfico. Não foi criada palavra reservada `T`.
-- **Terminais sem aspas:** `while` em `do S while (...)` e `=` em `LV = E` aparecem sem aspas, embora sejam inequivocamente a palavra reservada e o operador usados nas outras produções e na enumeração do livro. Eles geram `WHILE` e `EQUALS`.
-- **Numeral:** a gramática isolada mostra `n = digito * digito`, uma notação ambígua. O livro escreve explicitamente `n = digito . digito*`; logo, foi adotado um ou mais dígitos (`[0-9]+`).
-- **Sublinhado:** a expressão formal `Id = letra.(letra+digito)*` exclui `_`, embora o pseudocódigo posterior do livro teste `_`. A regra formal e a gramática prevaleceram; `_` é erro léxico.
-- **Literais e escapes:** não existe definição de escape. Embora capítulos posteriores mostrem `\0` em exemplos de caractere, aceitá-lo exigiria acrescentar uma regra ausente. A implementação é estrita: `'A'` é válido e `'\0'` contém dois caracteres, portanto é erro. Strings terminam na próxima `"`; `\"` não é escape.
-- **`any`:** uma aspa igual ao delimitador não pode simultaneamente ser conteúdo sem uma regra de escape. Para string, vale a primeira aspa dupla seguinte. Para caractere, vale exatamente um caractere seguido de aspa simples.
-- **Comentários:** nenhum dos PDFs define comentário. Assim, não há comentário a ignorar; `//x` produz `DIVIDE DIVIDE ID` e `/*x*/` produz operadores e identificador.
-- **Fim de arquivo:** `EOF` é um marcador de controle necessário para encerrar o consumidor de tokens. O `$` citado no capítulo de parsing pertence à gramática aumentada e não foi inventado como lexema de entrada.
-- **Construções ausentes:** `return` aparece em exemplos posteriores de geração de código, mas não na gramática fornecida nem na enumeração léxica. Portanto, é reconhecido como `ID`, não como palavra reservada.
-- **Questões puramente sintáticas:** obrigatoriedade de listas não vazias, associação do `else`, precedência de operadores, validade de um bloco e ordem de declarações não são verificadas pelo lexer.
+- A tabela não foi montada à mão: `buildLalrTable()` a calcula a partir de `RULES` ao iniciar o programa. O procedimento calcula FIRST e anuláveis, constrói os estados LR(1) (closure/goto) e funde, durante a construção, os estados de mesmo núcleo, propagando os lookaheads novos (seção 3.8). Não se usa bison, yacc nem outro gerador.
+- Resultado: **170 estados, 84 símbolos (50 terminais e 34 não terminais), 1 conflito empilha/reduz e 0 conflitos reduz/reduz.** O único conflito é o do *else pendente* (`if (E) S . else`), resolvido por empilhar: o `else` se liga ao `if` mais interno, como em C e Pascal. O teste `testTable` garante esses números.
+- O driver é o algoritmo da fig. 4.6. Como diferença, os terminais também são empilhados na pilha semântica. Assim, o atributo do i-ésimo símbolo do lado direito está sempre em `A(i)`, e o token secundário de `Id`/literais não depende de uma variável global, que no LR(1) já conteria o lookahead.
+- O primeiro erro sintático interrompe a análise (o livro não define recuperação). A mensagem traz a posição, o token encontrado e os tokens que a tabela aceitaria naquele estado.
 
-## 5. Implementação
+## 4. Análise de escopo
 
-A implementação completa está dividida em:
+- `levels_` é a pilha de blocos (fig. 5.1). `Define`, `Search` (só no nível corrente) e `Find` (do nível corrente para fora) seguem as figs. 5.5 a 5.7.
+- **Nível 0:** tipos e funções. **Função:** o nome fica no nível externo, e os parâmetros e as variáveis locais ficam no mesmo nível novo (fig. 5.2). Um bloco-comando `{ ... }` abre outro nível, que pode redeclarar nomes externos e cujas declarações deixam de valer no `}`.
+- **Campos:** são declarados num nível próprio da struct (`NB`) e deixam de ser visíveis ao fim dela. O acesso `LV . ID` é resolvido pela lista de campos do tipo, e não pela tabela de símbolos (cap. 5).
+- `IDD` repetido no nível → `ERR_REDECL`. `IDU` não encontrado → `ERR_NOT_DECL`; o nome é então definido com kind `UNIVERSAL_` para não gerar erros em cascata.
 
-- `src/lexer.hpp`: categorias, registros de token/erro e interface do lexer;
-- `src/lexer.cpp`: reconhecimento caractere a caractere, tabelas secundárias, erros e nomes dos tokens;
-- `src/main.cpp`: leitura de arquivo ou entrada padrão, interface de linha de comando e impressão;
-- `tests/lexer_tests.cpp`: testes automatizados de todas as categorias e dos principais erros.
+## 5. Análise de tipos
 
-O fluxo principal chama `scanAll()`, que repete o estado inicial do autômato até emitir `EOF`. Os tokens contêm categoria, lexema, linha, coluna e, quando aplicável, token secundário. Erros ficam em uma coleção separada, são enviados para `stderr` e fazem o programa terminar com código `1`. Falha de uso ou de abertura do arquivo termina com código `2`.
+- Kinds: `VAR_`, `PARAM_`, `FUNCTION_`, `FIELD_`, `ARRAY_TYPE_`, `STRUCT_TYPE_`, `ALIAS_TYPE_`, `SCALAR_TYPE_` e `UNIVERSAL_` (fig. 6.1). `integer`, `char`, `boolean` e `string` são objetos únicos, e `universal` é o tipo de qualquer expressão com erro.
+- Compatibilidade **por nome** (fig. 6.16): dois tipos são compatíveis se forem o mesmo objeto ou se um deles for o universal. Um alias é **sinônimo**: `T → IDU` devolve o tipo base, então `type Inteiro = integer` é compatível com `integer`.
 
-## 6. Como compilar e executar
+| Construção | Exigência | Erro |
+|---|---|---|
+| `T → IDU` | o nome deve ser um tipo | `ERR_TYPE_EXPECTED` |
+| `if`/`while`/`do` | condição boolean | `ERR_BOOL_TYPE_EXPECTED` |
+| `&&`, `\|\|` | operandos boolean; resultado boolean | `ERR_BOOL_TYPE_EXPECTED` |
+| `< > <= >= == !=` | operandos de tipos iguais; resultado boolean | `ERR_TYPE_MISMATCH` |
+| `+` | operandos iguais, integer ou string (concatenação) | `ERR_TYPE_MISMATCH`, `ERR_INVALID_TYPE` |
+| `- * /` | operandos iguais e integer | idem |
+| `-F`, `!F`, `++`, `--` | integer, boolean, variável integer | `ERR_INVALID_TYPE` |
+| `LV = E` | tipos iguais | `ERR_TYPE_MISMATCH` |
+| `LV → IDU` | variável ou parâmetro | `ERR_KIND_NOT_VAR` |
+| `LV . ID` | LV struct, e o campo deve existir | `ERR_KIND_NOT_STRUCT`, `ERR_FIELD_NOT_DECL` |
+| `LV [ E ]` | LV array (→ elemento) ou string (→ char); índice integer | `ERR_KIND_NOT_ARRAY`, `ERR_INVALID_INDEX_TYPE` |
+| `f(...)` | f função; quantidade e tipo dos argumentos | `ERR_KIND_NOT_FUNC`, `ERR_TOO_MANY_ARGS`, `ERR_TOO_FEW_ARGS`, `ERR_PARAM_TYPE` |
+| `return E` | E compatível com o retorno da função | `ERR_TYPE_MISMATCH` |
+| `break`/`continue` | dentro de um laço | erro semântico |
+| `array [n]` | 1 ≤ n ≤ 999999 | tamanho de array inválido |
+
+## 6. Decisões e ambiguidades
+
+1. **`return`, a única extensão da linguagem.** Toda função declara um tipo de retorno, mas a gramática não tem comando para devolver o valor: o tipo de retorno não teria o que verificar e uma chamada `f(...)` não teria valor definido. Os exemplos do livro usam `return E;`. Por isso `return` virou palavra reservada (na VC era `ID`) e `S → 'return' E ';'` foi acrescentada; a análise de tipos confere `E` com o retorno da função.
+2. **Blocos exigem declaração e comando.** `B → '{' LDV LS '}'` com `LDV` e `LS` não vazios foi mantido como na gramática. Por isso `while (c) { x = 1; }` é erro sintático; use `while (c) x = 1;` ou declare uma variável. Os exemplos do livro violam essa regra.
+3. **Não existe comando-expressão.** `i++;` ou `f(x);` sozinhos não são comandos na gramática; escreva `i = i + 1;`.
+4. **`'T'` em `DC`** é o não terminal `T` (já decidido na VC).
+5. **`LV '.' ID`:** a gramática diz `IDU`, mas o cap. 5 usa `ID` para não procurar o nome do campo na tabela de símbolos (fig. 5.8, regra `ID → Id`).
+6. **Tipo universal com kind `UNIVERSAL_`:** na fig. 6.3 ele tem kind escalar, o que dispararia `ERR_KIND_NOT_STRUCT` e outros erros em cascata.
+7. **Listas por vetor:** nas figs. 6.6 a 6.13, a lista de parâmetros é encadeada por `pNext` no mesmo nível das variáveis locais, então a checagem de argumentos continuaria pelas variáveis locais. Os parâmetros e os campos ficam num `std::vector` do objeto.
+8. **Compatibilidade por nome com alias sinônimo:** a versão estrutural da fig. 6.17 tem laço infinito nos campos, e a versão por nome tornaria um alias incompatível com a própria base.
+9. **`break`/`continue` fora de laço:** o livro não dá regras de atributos para eles. O marcador `MW` (que no cap. 7 gera o rótulo do laço) aqui só conta os laços abertos.
+10. **Redeclaração:** o `IDD` repetido recebe um objeto fora da tabela, para que o restante da declaração seja analisado sem sobrescrever o original.
+11. **Erros:** os erros léxicos impedem a análise sintática; o primeiro erro sintático encerra a análise; os erros de escopo e de tipo são acumulados e aparecem na ordem das reduções.
+12. **Fora desta entrega:** a geração de código (cap. 7) fica para a VF.
+
+## 7. Como compilar, executar e testar
 
 No PowerShell, a partir deste diretório:
 
 ```powershell
-g++ -std=c++11 -Wall -Wextra -Wpedantic -O2 src/main.cpp src/lexer.cpp -o analisador_lexico.exe
-.\analisador_lexico.exe examples\valido.ssl
-.\analisador_lexico.exe --tables examples\valido.ssl
+mingw32-make                 # gera compilador.exe
+mingw32-make test            # testes léxicos + testes do compilador + exemplo
+
+.\compilador.exe examples\fatorial.ssl              # analisa o programa
+.\compilador.exe --tables examples\strings.ssl      # + tabelas de identificadores e constantes
+.\compilador.exe --tokens examples\valido.ssl       # só a análise léxica (saída da VC)
+Get-Content examples\minimo.ssl -Raw | .\compilador.exe -
 ```
 
-Com o `mingw32-make`:
+Sem `make`: `g++ -std=c++11 -Wall -Wextra -Wpedantic -O2 src/main.cpp src/lexer.cpp src/lalr.cpp src/compiler.cpp -o compilador.exe`.
 
-```powershell
-mingw32-make
-mingw32-make test
+Códigos de saída: `0` = programa válido, `1` = erro léxico, sintático, de escopo ou de tipo, `2` = uso incorreto ou arquivo inexistente.
+
+## 8. Exemplos
+
+`examples/`: `fatorial.ssl` (7.4.1 do livro), `strings.ssl` (variações de 7.4.2/7.4.3), `ordenacao.ssl` (7.4.4, com struct e array de struct), `valido.ssl` e `minimo.ssl` (da VC), `erros_semanticos.ssl`, `erro_sintatico.ssl` e `erro.ssl` (léxico, da VC).
+
+**Programa válido** (`fatorial.ssl`):
+
 ```
-
-Para ler da entrada padrão, use `-` como nome do arquivo:
-
-```powershell
-Get-Content examples\minimo.ssl -Raw | .\analisador_lexico.exe -
-```
-
-Em Linux/macOS, troque o nome final por `analisador_lexico` e execute `./analisador_lexico`.
-
-## 7. Exemplos de entrada e saída
-
-Entrada válida em `examples/minimo.ssl`:
-
-```text
-function demo(x: integer): integer {
-    var s: string;
-    s = "ok";
-    x = x + 10;
+function fatorial(n: integer): integer {
+    var i, f: integer;
+    i = 2;
+    f = 1;
+    while (i <= n) f = f * i++;
+    return f;
 }
 ```
 
-Saída produzida (sem o cabeçalho tabular):
-
-```text
-1:1   FUNCTION           -  function
-1:10  ID                 0  demo
-1:14  LEFT_PARENTHESIS   -  (
-1:15  ID                 1  x
-1:16  COLON              -  :
-1:18  INTEGER            -  integer
-1:25  RIGHT_PARENTHESIS  -  )
-1:26  COLON              -  :
-1:28  INTEGER            -  integer
-1:36  LEFT_BRACES        -  {
-2:5   VAR                -  var
-2:9   ID                 2  s
-2:10  COLON              -  :
-2:12  STRING             -  string
-2:18  SEMI_COLON         -  ;
-3:5   ID                 2  s
-3:7   EQUALS             -  =
-3:9   STRINGVAL          0  "ok"
-3:13  SEMI_COLON         -  ;
-4:5   ID                 1  x
-4:7   EQUALS             -  =
-4:9   ID                 1  x
-4:11  PLUS               -  +
-4:13  NUMERAL            1  10
-4:15  SEMI_COLON         -  ;
-5:1   RIGHT_BRACES       -  }
-6:1   EOF                -  <fim do arquivo>
+```
+Programa valido: nenhum erro lexico, sintatico, de escopo ou de tipo.
 ```
 
-`examples/valido.ssl` é um exemplo maior, com tipos `array` e `struct`, duas funções, booleanos, caractere, string, indexação, seleção, repetição e operadores compostos.
+**Erros de escopo e de tipo** (`erros_semanticos.ssl`):
 
-Entrada inválida em `examples/erro.ssl` contém `_`, `&` isolado e string não terminada. O programa preserva os tokens válidos e reporta:
+```
+type Ponto = struct { x, y: integer }
 
-```text
-Foram encontrados 3 erro(s) lexico(s):
-2:13: erro lexico: caractere nao pertence ao alfabeto lexico da linguagem [lexema: _]
-3:19: erro lexico: '&' isolado nao e token valido; use '&&' [lexema: &]
-4:12: erro lexico: literal de string nao terminado [lexema: "string sem fechamento;\n}\n]
+function f(a: integer, a: char): integer {
+    var p: Ponto;
+    var b: boolean;
+    b = a + 1;
+    p.z = 2;
+    if (a) continue;
+    a = g(1);
+    a = f(1, 'c', 3);
+    return "texto";
+}
 ```
 
-## 8. Relação com a gramática
+```
+Foram encontrados 8 erro(s):
+3:24: erro de escopo: identificador 'a' ja declarado neste escopo [ERR_REDECL]
+6:9: erro de tipo: tipos incompativeis (boolean e integer) [ERR_TYPE_MISMATCH]
+7:7: erro de tipo: campo 'z' nao existe em Ponto [ERR_FIELD_NOT_DECL]
+8:12: erro semantico: continue fora de comando de repeticao
+8:9: erro de tipo: condicao deve ser boolean [ERR_BOOL_TYPE_EXPECTED]
+9:9: erro de escopo: identificador 'g' nao declarado [ERR_NOT_DECL]
+10:19: erro de tipo: argumentos demais na chamada de 'f' [ERR_TOO_MANY_ARGS]
+11:12: erro de tipo: retorno de 'f': tipos incompativeis (integer e string) [ERR_TYPE_MISMATCH]
+```
 
-Da gramática foram usados na fase léxica:
+**Erro sintático** (`erro_sintatico.ssl`, `y = x + ;`):
 
-- todos os terminais literais entre aspas, que viraram palavras reservadas, operadores ou delimitadores;
-- `Id`, `n`, `c` e `s`, cujas definições regulares viraram `ID`, `NUMERAL`, `CHARACTER` e `STRINGVAL`;
-- a ocorrência contextual de `while` e `=`, que confirma os dois terminais impressos sem aspas;
-- `IDD -> Id`, `IDU -> Id`, `TRUE -> 'true'`, `FALSE -> 'false'`, `CHR -> c`, `STR -> s` e `NUM -> n`, que mostram o mapeamento entre os tokens do lexer e os símbolos consumidos pelo parser.
+```
+Foram encontrados 1 erro(s):
+3:13: erro sintatico: token inesperado ';' (SEMI_COLON); esperado: FALSE TRUE ID NUMERAL CHARACTER STRINGVAL PLUS_PLUS MINUS MINUS_MINUS NOT LEFT_PARENTHESIS
+```
 
-Não foram implementadas as produções de `P`, declarações, comandos ou expressões. Elas definem como os tokens podem ser combinados e pertencem à análise sintática. Da mesma forma, distinguir declaração de uso de identificador, verificar escopo, tipos ou validade de operandos são responsabilidades de fases posteriores.
+## 9. Revisão de cobertura
 
-### Revisão de cobertura
-
-O teste `tests/lexer_tests.cpp` enumera e verifica as 18 palavras reservadas, as quatro categorias regulares, todos os 16 operadores, os dez delimitadores e `EOF`. Também verifica tokens secundários, CRLF, linha/coluna, `_`, `&`/`|` isolados, caractere vazio/longo/não terminado, string não terminada, caractere desconhecido e a decisão explícita de não tratar `//` como comentário. `mingw32-make test` foi executado com sucesso.
+- Das 83 regras de `RULES`, 68 têm `case` em `Semantics()`. As outras 15 (`START`, `P`, `LDE`, `DE`, `B`, `LDV`, `LS`, `TRUE`, `FALSE`, `CHR`, `STR`) só agrupam símbolos e caem no `default`; o tipo dos literais é atribuído nas regras de `F`.
+- Regras de atributos implementadas: figs. 5.4–5.10 (escopo) e 6.4–6.23 (tipos de declarações, comandos, expressões, left-values e chamadas).
+- `tests/compiler_tests.cpp` verifica: a tabela (1 S/R, 0 R/R); três programas válidos (fatorial com chamada de função, controle de fluxo com `break`/`continue`/else pendente, struct/array/alias/string); os 15 códigos de erro do livro, mais caractere de string, retorno, `break`/`continue` fora de laço, campo fora de escopo, bloco sem declaração e erro sintático; e as regras de escopo (redeclaração em bloco interno, parâmetro × local, variável de bloco interno fora dele, recursão).

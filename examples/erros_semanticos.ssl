@@ -1,0 +1,12 @@
+type Ponto = struct { x, y: integer }
+
+function f(a: integer, a: char): integer {
+    var p: Ponto;
+    var b: boolean;
+    b = a + 1;
+    p.z = 2;
+    if (a) continue;
+    a = g(1);
+    a = f(1, 'c', 3);
+    return "texto";
+}

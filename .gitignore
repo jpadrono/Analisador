@@ -1,0 +1,5 @@
+# binarios gerados pelo make
+*.exe
+compilador
+lexer_tests
+compiler_tests

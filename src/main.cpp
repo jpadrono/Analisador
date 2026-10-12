@@ -1,3 +1,4 @@
+#include "compiler.hpp"
 #include "lexer.hpp"
 
 #include <fstream>
@@ -72,8 +73,10 @@ void printTables(const Lexer& lexer) {
 }
 
 void printUsage(const char* executable) {
-    std::cerr << "Uso: " << executable << " [--tables] <arquivo|->\n"
-              << "  --tables  mostra tambem as tabelas de tokens secundarios\n"
+    std::cerr << "Uso: " << executable << " [--tokens] [--tables] <arquivo|->\n"
+              << "  (padrao)  analises lexica, sintatica, de escopo e de tipos\n"
+              << "  --tokens  apenas a analise lexica (saida da VC)\n"
+              << "  --tables  mostra tambem as tabelas de identificadores e constantes\n"
               << "  -         le o codigo-fonte da entrada padrao\n";
 }
 
@@ -81,12 +84,15 @@ void printUsage(const char* executable) {
 
 int main(int argc, char* argv[]) {
     bool showTables = false;
+    bool tokensOnly = false;
     std::string path;
 
     for (int i = 1; i < argc; ++i) {
         const std::string argument = argv[i];
         if (argument == "--tables") {
             showTables = true;
+        } else if (argument == "--tokens") {
+            tokensOnly = true;
         } else if (argument == "--help" || argument == "-h") {
             printUsage(argv[0]);
             return 0;
@@ -106,10 +112,11 @@ int main(int argc, char* argv[]) {
     try {
         Lexer lexer(readInput(path));
         const std::vector<Token> tokens = lexer.scanAll();
-        printTokens(tokens);
-
-        if (showTables) {
-            printTables(lexer);
+        if (tokensOnly) {
+            printTokens(tokens);
+            if (showTables) {
+                printTables(lexer);
+            }
         }
 
         if (!lexer.errors().empty()) {
@@ -127,6 +134,20 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
+        if (!tokensOnly) {
+            const std::vector<std::string> errors = analyze(tokens, lexer);
+            if (!errors.empty()) {
+                std::cerr << "Foram encontrados " << errors.size() << " erro(s):\n";
+                for (const std::string& error : errors) {
+                    std::cerr << error << '\n';
+                }
+                return 1;
+            }
+            std::cout << "Programa valido: nenhum erro lexico, sintatico, de escopo ou de tipo.\n";
+            if (showTables) {
+                printTables(lexer);
+            }
+        }
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "erro: " << error.what() << '\n';

@@ -1,22 +1,26 @@
 CXX := g++
 CXXFLAGS := -std=c++11 -Wall -Wextra -Wpedantic -O2
-TARGET := analisador_lexico
-SOURCES := src/main.cpp src/lexer.cpp
-TEST_TARGET := lexer_tests
+TARGET := compilador
+SOURCES := src/main.cpp src/lexer.cpp src/lalr.cpp src/compiler.cpp
+HEADERS := src/lexer.hpp src/lalr.hpp src/compiler.hpp
 
 .PHONY: all clean test
 
 all: $(TARGET)
 
-$(TARGET): $(SOURCES) src/lexer.hpp
+$(TARGET): $(SOURCES) $(HEADERS)
 	$(CXX) $(CXXFLAGS) $(SOURCES) -o $(TARGET)
 
-$(TEST_TARGET): tests/lexer_tests.cpp src/lexer.cpp src/lexer.hpp
-	$(CXX) $(CXXFLAGS) tests/lexer_tests.cpp src/lexer.cpp -o $(TEST_TARGET)
+lexer_tests: tests/lexer_tests.cpp src/lexer.cpp src/lexer.hpp
+	$(CXX) $(CXXFLAGS) tests/lexer_tests.cpp src/lexer.cpp -o lexer_tests
 
-test: $(TARGET) $(TEST_TARGET)
-	./$(TEST_TARGET)
-	./$(TARGET) examples/valido.ssl
+compiler_tests: tests/compiler_tests.cpp src/lexer.cpp src/lalr.cpp src/compiler.cpp $(HEADERS)
+	$(CXX) $(CXXFLAGS) tests/compiler_tests.cpp src/lexer.cpp src/lalr.cpp src/compiler.cpp -o compiler_tests
+
+test: $(TARGET) lexer_tests compiler_tests
+	./lexer_tests
+	./compiler_tests
+	./$(TARGET) examples/fatorial.ssl
 
 clean:
-	$(RM) $(TARGET) $(TARGET).exe $(TEST_TARGET) $(TEST_TARGET).exe
+	$(RM) $(TARGET) $(TARGET).exe lexer_tests lexer_tests.exe compiler_tests compiler_tests.exe
