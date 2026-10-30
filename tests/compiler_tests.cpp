@@ -15,34 +15,43 @@ void fail(const std::string& test, const std::string& message) {
     std::cerr << "FALHA [" << test << "]: " << message << '\n';
 }
 
-std::vector<std::string> analyzeSource(const std::string& source) {
+CompileResult compileSource(const std::string& source) {
     Lexer lexer(source);
     const std::vector<Token> tokens = lexer.scanAll();
     if (!lexer.errors().empty()) {
-        return {"erro lexico"};
+        CompileResult result;
+        result.errors.push_back("erro lexico");
+        return result;
     }
-    return analyze(tokens, lexer);
+    return compile(tokens, lexer);
 }
 
-std::string joinErrors(const std::vector<std::string>& errors) {
+std::string joinErrors(const CompileResult& result) {
     std::string all;
-    for (const std::string& error : errors) all += "\n  " + error;
+    for (const std::string& error : result.errors) all += "\n  " + error;
     return all;
 }
 
-void expectValid(const std::string& test, const std::string& source) {
-    const std::vector<std::string> errors = analyzeSource(source);
-    if (!errors.empty()) {
-        fail(test, "erros inesperados:" + joinErrors(errors));
+void expectCode(const std::string& test, const std::string& source,
+                const std::string& expected) {
+    const CompileResult result = compileSource(source);
+    if (!result.errors.empty()) {
+        fail(test, "erros inesperados:" + joinErrors(result));
+    } else if (result.code != expected) {
+        fail(test, "codigo gerado:\n" + result.code + "esperado:\n" + expected);
     }
 }
 
 // O programa deve gerar exatamente um erro contendo `fragment`.
 void expectError(const std::string& test, const std::string& source,
                  const std::string& fragment) {
-    const std::vector<std::string> errors = analyzeSource(source);
-    if (errors.size() != 1 || errors[0].find(fragment) == std::string::npos) {
-        fail(test, "esperado um erro com '" + fragment + "', obtido:" + joinErrors(errors));
+    const CompileResult result = compileSource(source);
+    if (result.errors.size() != 1 ||
+        result.errors[0].find(fragment) == std::string::npos) {
+        fail(test, "esperado um erro com '" + fragment + "', obtido:" + joinErrors(result));
+    }
+    if (!result.code.empty()) {
+        fail(test, "nao deveria haver codigo quando ha erro");
     }
 }
 
@@ -55,48 +64,122 @@ void testTable() {
     }
 }
 
-void testValidPrograms() {
-    // Exemplo 7.4.1 do livro, com while sem bloco (B exige ao menos uma declaração).
-    expectValid("fatorial",
-                "function fatorial(n: integer): integer {\n"
-                "    var i, f: integer;\n"
-                "    i = 2;\n"
-                "    f = 1;\n"
-                "    while (i <= n) f = f * i++;\n"
-                "    return f;\n"
-                "}\n"
-                "function somaFat(n: integer): integer {\n"
-                "    var i, s: integer;\n"
-                "    i = 0;\n"
-                "    s = 0;\n"
-                "    while (++i <= n) s = s + fatorial(i);\n"
-                "    return s;\n"
-                "}\n");
-    expectValid("controle",
-                "function g(n: integer): integer {\n"
-                "    var i: integer;\n"
-                "    i = 0;\n"
-                "    do {\n"
-                "        var t: integer;\n"
-                "        if (i == 5) break; else continue;\n"
-                "    } while (i < n);\n"
-                "    if (true) if (false) i = 1; else i = 2;\n"
-                "    return i;\n"
-                "}\n");
-    expectValid("tipos estruturados",
-                "type V = array [3] of integer\n"
-                "type P = struct { a: integer; v: V; c: char }\n"
-                "type Inteiro = integer\n"
-                "function h(p: P, s: string): Inteiro {\n"
-                "    var x: integer;\n"
-                "    var q: P;\n"
-                "    p.v[2] = p.a;\n"
-                "    x = p.v[1];\n"
-                "    s[x] = p.c;\n"
-                "    q = p;\n"
-                "    s = s + \"!\";\n"
-                "    return x;\n"
-                "}\n");
+// Exemplo 7.4.1 do livro, com while sem bloco (B exige ao menos uma declaração).
+void testFactorial() {
+    expectCode("fatorial",
+               "function fatorial(n: integer): integer {\n"
+               "    var i, f: integer;\n"
+               "    i = 2;\n"
+               "    f = 1;\n"
+               "    while (i <= n) f = f * i++;\n"
+               "    return f;\n"
+               "}\n"
+               "function somaFat(n: integer): integer {\n"
+               "    var i, s: integer;\n"
+               "    i = 0;\n"
+               "    s = 0;\n"
+               "    while (++i <= n) s = s + fatorial(i);\n"
+               "    return s;\n"
+               "}\n",
+               "BEGIN_FUNC 0, 1, 3\n"
+               "\tLOAD_REF 1\n\tLOAD_CONST 0\n\tSTORE_REF 1\n"
+               "\tLOAD_REF 2\n\tLOAD_CONST 1\n\tSTORE_REF 1\n"
+               "L0:\n"
+               "\tLOAD_REF 1\n\tDE_REF 1\n\tLOAD_REF 0\n\tDE_REF 1\n\tLE\n\tTJMP_FW L1\n"
+               "\tLOAD_REF 2\n\tLOAD_REF 2\n\tDE_REF 1\n"
+               "\tLOAD_REF 1\n\tDUP\n\tDUP\n\tDE_REF 1\n\tINC\n\tSTORE_REF 1\n\tDE_REF 1\n\tDEC\n"
+               "\tMUL\n\tSTORE_REF 1\n"
+               "\tJMP_BW L0\n"
+               "L1:\n"
+               "\tLOAD_REF 2\n\tDE_REF 1\n\tRET\n"
+               "END_FUNC\n"
+               "BEGIN_FUNC 1, 1, 3\n"
+               "\tLOAD_REF 1\n\tLOAD_CONST 2\n\tSTORE_REF 1\n"
+               "\tLOAD_REF 2\n\tLOAD_CONST 3\n\tSTORE_REF 1\n"
+               "L2:\n"
+               "\tLOAD_REF 1\n\tDUP\n\tDUP\n\tDE_REF 1\n\tINC\n\tSTORE_REF 1\n\tDE_REF 1\n"
+               "\tLOAD_REF 0\n\tDE_REF 1\n\tLE\n\tTJMP_FW L3\n"
+               "\tLOAD_REF 2\n\tLOAD_REF 2\n\tDE_REF 1\n"
+               "\tLOAD_REF 1\n\tDE_REF 1\n\tCALL 0\n\tADD\n\tSTORE_REF 1\n"
+               "\tJMP_BW L2\n"
+               "L3:\n"
+               "\tLOAD_REF 2\n\tDE_REF 1\n\tRET\n"
+               "END_FUNC\n");
+}
+
+// if/else, do-while, break, continue e o else pendente (liga-se ao if interno).
+void testControlFlow() {
+    expectCode("controle",
+               "function g(n: integer): integer {\n"
+               "    var i: integer;\n"
+               "    i = 0;\n"
+               "    do {\n"
+               "        var t: integer;\n"
+               "        if (i == 5) break; else continue;\n"
+               "    } while (i < n);\n"
+               "    if (true) if (false) i = 1; else i = 2;\n"
+               "    return i;\n"
+               "}\n",
+               "BEGIN_FUNC 0, 1, 3\n"
+               "\tLOAD_REF 1\n\tLOAD_CONST 0\n\tSTORE_REF 1\n"
+               "L0:\n"
+               "\tLOAD_REF 1\n\tDE_REF 1\n\tLOAD_CONST 1\n\tEQ\n\tTJMP_FW L3\n"
+               "\tJMP_FW L1\n"
+               "\tJMP_FW L4\n"
+               "L3:\n"
+               "\tJMP_FW L2\n"
+               "L4:\n"
+               "L2:\n"
+               "\tLOAD_REF 1\n\tDE_REF 1\n\tLOAD_REF 0\n\tDE_REF 1\n\tLT\n"
+               "\tNOT\n\tTJMP_BW L0\n"
+               "L1:\n"
+               "\tLOAD_TRUE\n\tTJMP_FW L5\n"
+               "\tLOAD_FALSE\n\tTJMP_FW L6\n"
+               "\tLOAD_REF 1\n\tLOAD_CONST 2\n\tSTORE_REF 1\n"
+               "\tJMP_FW L7\n"
+               "L6:\n"
+               "\tLOAD_REF 1\n\tLOAD_CONST 3\n\tSTORE_REF 1\n"
+               "L7:\n"
+               "L5:\n"
+               "\tLOAD_REF 1\n\tDE_REF 1\n\tRET\n"
+               "END_FUNC\n");
+}
+
+// Tamanhos, endereçamento de campos/elementos e caracteres de string.
+void testStructuredTypes() {
+    expectCode("tipos estruturados",
+               "type V = array [3] of integer\n"
+               "type P = struct { a: integer; v: V; c: char }\n"
+               "type Inteiro = integer\n"
+               "function h(p: P, s: string): Inteiro {\n"
+               "    var x: integer;\n"
+               "    p.v[2] = p.a;\n"
+               "    x = p.v[1];\n"
+               "    s[x] = p.c;\n"
+               "    return x;\n"
+               "}\n",
+               "BEGIN_FUNC 0, 6, 7\n"
+               "\tLOAD_REF 0\n\tADD 1\n\tLOAD_CONST 1\n\tMUL 1\n\tADD\n"
+               "\tLOAD_REF 0\n\tADD 0\n\tDE_REF 1\n\tSTORE_REF 1\n"
+               "\tLOAD_REF 6\n"
+               "\tLOAD_REF 0\n\tADD 1\n\tLOAD_CONST 2\n\tMUL 1\n\tADD\n\tDE_REF 1\n"
+               "\tSTORE_REF 1\n"
+               "\tLOAD_REF 5\n\tLOAD_REF 6\n\tDE_REF 1\n"
+               "\tLOAD_REF 0\n\tADD 4\n\tDE_REF 1\n"
+               "\tCALL_LIB 0, 1\n\tPOP\n"
+               "\tLOAD_REF 6\n\tDE_REF 1\n\tRET\n"
+               "END_FUNC\n");
+    expectCode("copia de struct e leitura de caractere",
+               "type P = struct { a, b: integer }\n"
+               "function k(p: P, s: string): char {\n"
+               "    var q: P;\n"
+               "    q = p;\n"
+               "    return s[q.b];\n"
+               "}\n",
+               "BEGIN_FUNC 0, 3, 5\n"
+               "\tLOAD_REF 3\n\tLOAD_REF 0\n\tDE_REF 2\n\tSTORE_REF 2\n"
+               "\tLOAD_REF 2\n\tLOAD_REF 3\n\tADD 1\n\tDE_REF 1\n\tCALL_LIB 0, 0\n\tRET\n"
+               "END_FUNC\n");
 }
 
 void testErrors() {
@@ -140,13 +223,16 @@ void testErrors() {
 void testScopes() {
     // Bloco interno pode redeclarar nome externo; parâmetros e locais da
     // função compartilham o mesmo nível; recursão é permitida.
-    expectValid("escopos",
-                "function f(x: integer): integer {\n"
-                "    var y: integer;\n"
-                "    { var x: char; x = 'a'; }\n"
-                "    y = f(x);\n"
-                "    return y;\n"
-                "}\n");
+    const CompileResult result = compileSource(
+        "function f(x: integer): integer {\n"
+        "    var y: integer;\n"
+        "    { var x: char; x = 'a'; }\n"
+        "    y = f(x);\n"
+        "    return y;\n"
+        "}\n");
+    if (!result.errors.empty()) {
+        fail("escopos", "erros inesperados:" + joinErrors(result));
+    }
     expectError("parametro e local no mesmo nivel",
                 "function f(x: integer): integer { var x: integer; x = 1; }\n",
                 "[ERR_REDECL]");
@@ -163,7 +249,9 @@ void testScopes() {
 
 int main() {
     testTable();
-    testValidPrograms();
+    testFactorial();
+    testControlFlow();
+    testStructuredTypes();
     testErrors();
     testScopes();
 

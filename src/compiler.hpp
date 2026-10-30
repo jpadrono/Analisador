@@ -7,10 +7,14 @@
 #include <string>
 #include <vector>
 
-// Análises sintática, de escopo e de tipos de um programa que o Lexer já leu
-// sem erros léxicos. Devolve os erros no formato
-// "linha:coluna: erro <fase>: mensagem"; vazio se o programa for válido.
-std::vector<std::string> analyze(const std::vector<Token>& tokens, const Lexer& lexer);
+struct CompileResult {
+    std::string code;                 // assembly da máquina virtual; vazio se houver erro
+    std::vector<std::string> errors;  // "linha:coluna: erro <fase>: mensagem"
+};
+
+// Análises sintática, de escopo e de tipos e geração de código de um
+// programa que o Lexer já leu sem erros léxicos.
+CompileResult compile(const std::vector<Token>& tokens, const Lexer& lexer);
 
 // Tabela la-LR(1) da Simple Script Language, construída uma única vez.
 const LalrTable& sslParseTable();

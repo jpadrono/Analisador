@@ -74,7 +74,7 @@ void printTables(const Lexer& lexer) {
 
 void printUsage(const char* executable) {
     std::cerr << "Uso: " << executable << " [--tokens] [--tables] <arquivo|->\n"
-              << "  (padrao)  analises lexica, sintatica, de escopo e de tipos\n"
+              << "  (padrao)  compila e escreve o codigo da maquina virtual na saida padrao\n"
               << "  --tokens  apenas a analise lexica (saida da VC)\n"
               << "  --tables  mostra tambem as tabelas de identificadores e constantes\n"
               << "  -         le o codigo-fonte da entrada padrao\n";
@@ -135,15 +135,15 @@ int main(int argc, char* argv[]) {
         }
 
         if (!tokensOnly) {
-            const std::vector<std::string> errors = analyze(tokens, lexer);
-            if (!errors.empty()) {
-                std::cerr << "Foram encontrados " << errors.size() << " erro(s):\n";
-                for (const std::string& error : errors) {
+            const CompileResult result = compile(tokens, lexer);
+            if (!result.errors.empty()) {
+                std::cerr << "Foram encontrados " << result.errors.size() << " erro(s):\n";
+                for (const std::string& error : result.errors) {
                     std::cerr << error << '\n';
                 }
                 return 1;
             }
-            std::cout << "Programa valido: nenhum erro lexico, sintatico, de escopo ou de tipo.\n";
+            std::cout << result.code;
             if (showTables) {
                 printTables(lexer);
             }

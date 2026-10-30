@@ -18,7 +18,7 @@ enum Nonterminal {
     DV_, LI_, S_, E_, L_, R_, Y_, F_, LE_, LV_, IDD_, IDU_, ID_,
     TRUE_, FALSE_, CHR_, STR_, NUM_,
     // Marcadores semânticos: não terminais com uma única regra vazia (seção 5.1).
-    NB_, MF_, MW_, MC_,
+    NB_, NF_, MF_, MT_, ME_, MW_, MD_, MC_,
     NUM_SYMBOLS
 };
 
@@ -46,12 +46,12 @@ enum RuleId {
     LV_FIELD, LV_INDEX, LV_IDU,
     IDD_ID, IDU_ID, ID_ID,
     TRUE_TRUE, FALSE_FALSE, CHR_C, STR_S, NUM_N,
-    NB_EMPTY, MF_EMPTY, MW_EMPTY, MC_EMPTY,
+    NB_EMPTY, NF_EMPTY, MF_EMPTY, MT_EMPTY, ME_EMPTY, MW_EMPTY, MD_EMPTY, MC_EMPTY,
     NUM_RULES
 };
 
-// Gramática de Gramática.pdf com os marcadores dos capítulos 5 e 6, ID no
-// acesso a campo (cap. 5) e o comando return.
+// Gramática de Gramática.pdf com os marcadores dos capítulos 5 a 7, ID no
+// acesso a campo (cap. 5) e o comando return (exemplos do cap. 7).
 const std::vector<Rule> RULES = {
     {START_, {P_}},
     {P_, {LDE_}},
@@ -69,7 +69,7 @@ const std::vector<Rule> RULES = {
     {DT_, {K(TYPE), IDD_, K(ASSIGN), T_}},
     {DC_, {DC_, K(SEMICOLON), LI_, K(COLON), T_}},
     {DC_, {LI_, K(COLON), T_}},
-    {DF_, {K(FUNCTION), IDD_, NB_, K(LEFT_PARENTHESIS), LP_, K(RIGHT_PARENTHESIS), K(COLON), T_, MF_, B_}},
+    {DF_, {K(FUNCTION), IDD_, NF_, K(LEFT_PARENTHESIS), LP_, K(RIGHT_PARENTHESIS), K(COLON), T_, MF_, B_}},
     {LP_, {LP_, K(COMMA), IDD_, K(COLON), T_}},
     {LP_, {IDD_, K(COLON), T_}},
     {B_, {K(LEFT_BRACE), LDV_, LS_, K(RIGHT_BRACE)}},
@@ -80,10 +80,10 @@ const std::vector<Rule> RULES = {
     {DV_, {K(VAR), LI_, K(COLON), T_, K(SEMICOLON)}},
     {LI_, {LI_, K(COMMA), IDD_}},
     {LI_, {IDD_}},
-    {S_, {K(IF), K(LEFT_PARENTHESIS), E_, K(RIGHT_PARENTHESIS), S_}},
-    {S_, {K(IF), K(LEFT_PARENTHESIS), E_, K(RIGHT_PARENTHESIS), S_, K(ELSE), S_}},
-    {S_, {K(WHILE), MW_, K(LEFT_PARENTHESIS), E_, K(RIGHT_PARENTHESIS), S_}},
-    {S_, {K(DO), MW_, S_, K(WHILE), K(LEFT_PARENTHESIS), E_, K(RIGHT_PARENTHESIS), K(SEMICOLON)}},
+    {S_, {K(IF), K(LEFT_PARENTHESIS), E_, K(RIGHT_PARENTHESIS), MT_, S_}},
+    {S_, {K(IF), K(LEFT_PARENTHESIS), E_, K(RIGHT_PARENTHESIS), MT_, S_, K(ELSE), ME_, S_}},
+    {S_, {K(WHILE), MW_, K(LEFT_PARENTHESIS), E_, K(RIGHT_PARENTHESIS), MT_, S_}},
+    {S_, {K(DO), MW_, S_, K(WHILE), MD_, K(LEFT_PARENTHESIS), E_, K(RIGHT_PARENTHESIS), K(SEMICOLON)}},
     {S_, {NB_, B_}},
     {S_, {LV_, K(ASSIGN), E_, K(SEMICOLON)}},
     {S_, {K(BREAK), K(SEMICOLON)}},
@@ -133,15 +133,19 @@ const std::vector<Rule> RULES = {
     {STR_, {K(STRING_VALUE)}},
     {NUM_, {K(NUMERAL)}},
     {NB_, {}},
+    {NF_, {}},
     {MF_, {}},
+    {MT_, {}},
+    {ME_, {}},
     {MW_, {}},
+    {MD_, {}},
     {MC_, {}},
 };
 
 #undef K
 
 // ---------------------------------------------------------------------------
-// Tabela de símbolos (capítulos 5 e 6)
+// Tabela de símbolos (capítulos 5, 6 e 7)
 // ---------------------------------------------------------------------------
 
 enum Kind {
@@ -149,15 +153,19 @@ enum Kind {
     ARRAY_TYPE_, STRUCT_TYPE_, ALIAS_TYPE_, SCALAR_TYPE_, UNIVERSAL_
 };
 
-// Figuras 5.3 e 6.2 achatadas em uma struct. As listas encadeadas por pNext
-// viraram vetores: no livro, a lista de parâmetros continua nas variáveis
-// locais, que são declaradas no mesmo nível.
+// Figuras 5.3, 6.2 e 7.11 achatadas em uma struct. As listas encadeadas por
+// pNext viraram vetores: no livro, a lista de parâmetros continua nas
+// variáveis locais, que são declaradas no mesmo nível.
 struct Object {
     int name = -1;               // token secundário do identificador
     Kind kind = NO_KIND_DEF_;
     Object* type = nullptr;      // var/param/campo: tipo; função: retorno; array: elemento; alias: base
+    int index = 0;               // var/param: endereço (bp + index); campo: deslocamento; função: nº no pool
+    int size = 0;                // em valores escalares: tamanho do tipo ou da variável
     int numElems = 0;            // array
     std::vector<Object*> list;   // função: parâmetros; struct: campos
+    int nParams = 0;             // função: tamanho dos parâmetros
+    int nVars = 0;               // função: tamanho dos parâmetros + variáveis (figura 7.18)
 };
 
 // Nó da pilha semântica. Diferente do livro, os terminais também são
@@ -167,24 +175,40 @@ struct Attr {
     int symbol = -1;
     std::size_t line = 0;
     std::size_t column = 0;
-    int name = -1;               // token secundário (Id e NUM)
+    int name = -1;               // token secundário (Id e literais)
     Object* obj = nullptr;       // IDD, IDU; MC e LE: função chamada
     Object* type = nullptr;      // T, E, L, R, Y, F, LV, MC
-    int count = 0;               // LE: argumentos já verificados
+    int size = 0;                // T, DC, LP
+    int label = -1;              // MT, ME
+    int count = 0;               // LE: argumentos verificados; MF: início do código da função
     bool err = false;            // MC, LE: chamada inválida, argumentos não são verificados
+    bool strElem = false;        // LV: caractere de string (s[i])
     std::vector<Object*> list;   // LI, LP, DC
 };
+
+struct Loop {
+    int start;   // rótulo do início do laço
+    int exit;    // destino do break
+    int cont;    // destino do continue
+    bool isDo;
+};
+
+// Instruções CALL_LIB da biblioteca 0 (strings), recomendadas pelo livro
+// para acessar caracteres quando a linguagem tem tipos estruturados.
+const char* const LIB_CHAR_AT = "CALL_LIB 0, 0";   // [ref, i]    -> [s[i]]
+const char* const LIB_SET_CHAR = "CALL_LIB 0, 1";  // [ref, i, c] -> [c], com s[i] = c
 
 class Compiler {
 public:
     explicit Compiler(const Lexer& lexer) : lexer_(lexer) {
         for (Object* scalar : {&int_, &char_, &bool_, &string_}) {
             scalar->kind = SCALAR_TYPE_;
+            scalar->size = 1;
         }
         universal_.kind = UNIVERSAL_;
     }
 
-    std::vector<std::string> run(const std::vector<Token>& tokens);
+    CompileResult run(const std::vector<Token>& tokens);
 
 private:
     const Lexer& lexer_;
@@ -194,8 +218,11 @@ private:
     std::vector<std::vector<Object*>> levels_;       // pilha de blocos (figura 5.1)
     std::vector<Attr> sem_;                          // pilha semântica
     std::size_t base_ = 0;                           // A(0) da regra em redução
-    int openLoops_ = 0;                              // laços que envolvem o comando atual
-    Object* function_ = nullptr;                     // função em análise (para o return)
+    std::vector<Loop> loops_;
+    Object* function_ = nullptr;                     // curFunction
+    int numFunctions_ = 0;
+    int numLabels_ = 0;
+    std::string code_;
     std::vector<std::string> errors_;
 
     Attr& A(std::size_t i) { return sem_[base_ + i]; }
@@ -235,7 +262,8 @@ private:
                t1 == &universal_ || t2 == &universal_;
     }
 
-    void declare(Attr& lhs, const std::vector<Object*>& ids, Object* type, Kind kind);
+    void declare(Attr& lhs, const std::vector<Object*>& ids, const Attr& t,
+                 Kind kind, int firstIndex);
     void checkArgument(Attr& le, const Attr& e);
 
     void error(std::size_t line, std::size_t column, const std::string& phase,
@@ -264,9 +292,16 @@ private:
         return "tipos incompativeis (" + typeName(t1) + " e " + typeName(t2) +
                ") [ERR_TYPE_MISMATCH]";
     }
+
+    int newLabel() { return numLabels_++; }
+    void emit(const std::string& instruction) { code_ += "\t" + instruction + "\n"; }
+    void emit(const std::string& instruction, int operand) {
+        emit(instruction + " " + std::to_string(operand));
+    }
+    void placeLabel(int label) { code_ += "L" + std::to_string(label) + ":\n"; }
 };
 
-std::vector<std::string> Compiler::run(const std::vector<Token>& tokens) {
+CompileResult Compiler::run(const std::vector<Token>& tokens) {
     const LalrTable& table = sslParseTable();
     std::vector<int> states(1, 0);
     sem_.assign(1, Attr());
@@ -308,7 +343,13 @@ std::vector<std::string> Compiler::run(const std::vector<Token>& tokens) {
             break;
         }
     }
-    return errors_;
+
+    CompileResult result;
+    result.errors = errors_;
+    if (errors_.empty()) {  // ERROR_FLAG do livro: só há código se não houve erro
+        result.code = code_;
+    }
+    return result;
 }
 
 void Compiler::syntaxError(const Token& token, const std::vector<Action>& row) {
@@ -327,13 +368,19 @@ void Compiler::syntaxError(const Token& token, const std::vector<Action>& row) {
           "token inesperado " + found + "; esperado: " + expected);
 }
 
-// Variáveis, parâmetros e campos: kind e tipo (figuras 6.6, 6.10 e 6.12).
-void Compiler::declare(Attr& lhs, const std::vector<Object*>& ids, Object* type, Kind kind) {
+// Variáveis, parâmetros e campos: kind, tipo, endereço e tamanho (figuras 7.15, 7.17 e 7.19).
+void Compiler::declare(Attr& lhs, const std::vector<Object*>& ids, const Attr& t,
+                       Kind kind, int firstIndex) {
+    int index = firstIndex;
     for (Object* p : ids) {
         p->kind = kind;
-        p->type = type;
+        p->type = t.type;
+        p->index = index;
+        p->size = t.size;
+        index += t.size;
         lhs.list.push_back(p);
     }
+    lhs.size = index;
 }
 
 // Um argumento de chamada (figura 6.23): LE.count argumentos já foram verificados.
@@ -357,17 +404,19 @@ void Compiler::checkArgument(Attr& le, const Attr& e) {
 
 void Compiler::semantics(int rule, Attr& lhs) {
     switch (rule) {
-        // ----- Tipos (figura 6.5) -----
-        case T_INTEGER: lhs.type = &int_; break;
-        case T_CHAR: lhs.type = &char_; break;
-        case T_BOOLEAN: lhs.type = &bool_; break;
-        case T_STRING: lhs.type = &string_; break;
+        // ----- Tipos (figuras 6.5 e 7.12) -----
+        case T_INTEGER: lhs.type = &int_; lhs.size = 1; break;
+        case T_CHAR: lhs.type = &char_; lhs.size = 1; break;
+        case T_BOOLEAN: lhs.type = &bool_; lhs.size = 1; break;
+        case T_STRING: lhs.type = &string_; lhs.size = 1; break;
         case T_IDU: {
             Object* p = A(0).obj;
             if (p->kind == ALIAS_TYPE_) {  // sinônimo: usa o tipo base
                 lhs.type = p->type;
+                lhs.size = p->size;
             } else if (p->kind == ARRAY_TYPE_ || p->kind == STRUCT_TYPE_) {
                 lhs.type = p;
+                lhs.size = p->size;
             } else {
                 if (p->kind != UNIVERSAL_) {
                     error(A(0), "de tipo", idName(p->name) + " nao e um tipo [ERR_TYPE_EXPECTED]");
@@ -377,7 +426,7 @@ void Compiler::semantics(int rule, Attr& lhs) {
             break;
         }
 
-        // ----- Declarações de tipo (figuras 6.8, 6.9 e 6.11) -----
+        // ----- Declarações de tipo (figuras 7.13, 7.14 e 7.16) -----
         case DT_ARRAY: {  // type IDD = array [ NUM ] of T
             Object* p = A(1).obj;
             const std::string& digits = lexer_.constants()[A(5).name].value;
@@ -388,12 +437,14 @@ void Compiler::semantics(int rule, Attr& lhs) {
             p->kind = ARRAY_TYPE_;
             p->numElems = n;
             p->type = A(8).type;
+            p->size = n * A(8).size;
             break;
         }
         case DT_STRUCT: {  // type IDD = struct NB { DC }
             Object* p = A(1).obj;
             p->kind = STRUCT_TYPE_;
             p->list = A(6).list;
+            p->size = A(6).size;
             endBlock();
             break;
         }
@@ -401,35 +452,54 @@ void Compiler::semantics(int rule, Attr& lhs) {
             Object* p = A(1).obj;
             p->kind = ALIAS_TYPE_;
             p->type = A(3).type;
+            p->size = A(3).size;
             break;
         }
-        case DC_LI: declare(lhs, A(0).list, A(2).type, FIELD_); break;
+        case DC_LI: declare(lhs, A(0).list, A(2), FIELD_, 0); break;
         case DC_LIST:
             lhs.list = A(0).list;
-            declare(lhs, A(2).list, A(4).type, FIELD_);
+            declare(lhs, A(2).list, A(4), FIELD_, A(0).size);
             break;
 
-        // ----- Funções (figuras 5.10, 6.12 e 6.13) -----
-        case LP_IDD: declare(lhs, {A(0).obj}, A(2).type, PARAM_); break;
-        case LP_LIST:
-            lhs.list = A(0).list;
-            declare(lhs, {A(2).obj}, A(4).type, PARAM_);
-            break;
-        case MF_EMPTY: {  // function IDD NB ( LP ) : T . MF -- antes do corpo, permite recursão
-            Object* f = left(6).obj;
+        // ----- Funções (figuras 6.13, 7.17 e 7.18) -----
+        case NF_EMPTY: {  // function IDD . NF
+            Object* f = left(0).obj;
             f->kind = FUNCTION_;
-            f->type = left(0).type;
-            f->list = left(3).list;
+            f->index = numFunctions_++;
             function_ = f;
+            newBlock();  // parâmetros e variáveis locais
             break;
         }
-        case DF_FUNCTION:  // function IDD NB ( LP ) : T MF B
+        case LP_IDD: declare(lhs, {A(0).obj}, A(2), PARAM_, 0); break;
+        case LP_LIST:
+            lhs.list = A(0).list;
+            declare(lhs, {A(2).obj}, A(4), PARAM_, A(0).size);
+            break;
+        case MF_EMPTY: {  // function IDD NF ( LP ) : T . MF
+            function_->type = left(0).type;
+            function_->list = left(3).list;
+            function_->nParams = left(3).size;
+            function_->nVars = left(3).size;
+            lhs.count = static_cast<int>(code_.size());
+            break;
+        }
+        case DF_FUNCTION: {  // function IDD NF ( LP ) : T MF B
+            const Object* f = A(1).obj;
+            code_.insert(static_cast<std::size_t>(A(8).count),
+                         "BEGIN_FUNC " + std::to_string(f->index) + ", " +
+                             std::to_string(f->nParams) + ", " +
+                             std::to_string(f->nVars) + "\n");
+            code_ += "END_FUNC\n";
             endBlock();
             function_ = nullptr;
             break;
+        }
 
-        // ----- Variáveis e listas de identificadores (figura 6.6) -----
-        case DV_VAR: declare(lhs, A(1).list, A(3).type, VAR_); break;  // var LI : T ;
+        // ----- Variáveis e listas de identificadores (figura 7.19) -----
+        case DV_VAR:  // var LI : T ;
+            declare(lhs, A(1).list, A(3), VAR_, function_->nVars);
+            function_->nVars = lhs.size;
+            break;
         case LI_IDD: lhs.list.push_back(A(0).obj); break;
         case LI_LIST:
             lhs.list = A(0).list;
@@ -461,29 +531,64 @@ void Compiler::semantics(int rule, Attr& lhs) {
             break;
         case ID_ID: lhs.name = A(0).name; break;
 
-        // ----- Blocos (figuras 5.9, 5.10 e 6.14) -----
+        // ----- Blocos -----
         case NB_EMPTY: newBlock(); break;
         case S_BLOCK: endBlock(); break;  // NB B
 
-        // ----- Seleção e repetição (figura 6.15) -----
-        case S_IF:       // if ( E ) S
-        case S_IF_ELSE:  // if ( E ) S else S
+        // ----- Seleção (figura 7.21) -----
+        case MT_EMPTY:  // ( E ) . MT -- no while, desvia para a saída do laço
+            lhs.label = left(3).symbol == MW_ ? loops_.back().exit : newLabel();
+            emit("TJMP_FW L" + std::to_string(lhs.label));
+            break;
+        case ME_EMPTY:  // MT S else . ME
+            lhs.label = newLabel();
+            emit("JMP_FW L" + std::to_string(lhs.label));
+            placeLabel(left(2).label);
+            break;
+        case S_IF:  // if ( E ) MT S
             expect(A(2), A(2).type, &bool_, "condicao deve ser boolean [ERR_BOOL_TYPE_EXPECTED]");
+            placeLabel(A(4).label);
             break;
-        case MW_EMPTY: ++openLoops_; break;  // while . MW  |  do . MW
-        case S_WHILE:  // while MW ( E ) S
+        case S_IF_ELSE:  // if ( E ) MT S else ME S
+            expect(A(2), A(2).type, &bool_, "condicao deve ser boolean [ERR_BOOL_TYPE_EXPECTED]");
+            placeLabel(A(7).label);
+            break;
+
+        // ----- Repetição (figura 7.22) -----
+        case MW_EMPTY: {  // while . MW  |  do . MW
+            Loop loop;
+            loop.isDo = left(0).symbol == static_cast<int>(TokenKind::DO);
+            loop.start = newLabel();
+            loop.exit = newLabel();
+            loop.cont = loop.isDo ? newLabel() : loop.start;
+            placeLabel(loop.start);
+            loops_.push_back(loop);
+            break;
+        }
+        case MD_EMPTY: placeLabel(loops_.back().cont); break;  // do MW S while . MD
+        case S_WHILE:  // while MW ( E ) MT S
             expect(A(3), A(3).type, &bool_, "condicao deve ser boolean [ERR_BOOL_TYPE_EXPECTED]");
-            --openLoops_;
+            emit("JMP_BW L" + std::to_string(loops_.back().start));
+            placeLabel(loops_.back().exit);
+            loops_.pop_back();
             break;
-        case S_DO_WHILE:  // do MW S while ( E ) ;
-            expect(A(5), A(5).type, &bool_, "condicao deve ser boolean [ERR_BOOL_TYPE_EXPECTED]");
-            --openLoops_;
+        case S_DO_WHILE:  // do MW S while MD ( E ) ;
+            expect(A(6), A(6).type, &bool_, "condicao deve ser boolean [ERR_BOOL_TYPE_EXPECTED]");
+            emit("NOT");
+            emit("TJMP_BW L" + std::to_string(loops_.back().start));
+            placeLabel(loops_.back().exit);
+            loops_.pop_back();
             break;
         case S_BREAK:
         case S_CONTINUE:
-            if (openLoops_ == 0) {
+            if (loops_.empty()) {
                 error(A(0), "semantico", std::string(rule == S_BREAK ? "break" : "continue") +
                                              " fora de comando de repeticao");
+            } else if (rule == S_BREAK) {
+                emit("JMP_FW L" + std::to_string(loops_.back().exit));
+            } else {
+                emit(std::string(loops_.back().isDo ? "JMP_FW" : "JMP_BW") + " L" +
+                     std::to_string(loops_.back().cont));
             }
             break;
 
@@ -492,15 +597,22 @@ void Compiler::semantics(int rule, Attr& lhs) {
             if (!checkTypes(A(0).type, A(2).type)) {
                 error(A(2), "de tipo", mismatch(A(0).type, A(2).type));
             }
+            if (A(0).strElem) {
+                emit(LIB_SET_CHAR);
+                emit("POP");
+            } else {
+                emit("STORE_REF", A(0).type ? A(0).type->size : 0);
+            }
             break;
         case S_RETURN:  // return E ;
             if (!checkTypes(function_->type, A(1).type)) {
                 error(A(1), "de tipo", "retorno de " + idName(function_->name) + ": " +
                                            mismatch(function_->type, A(1).type));
             }
+            emit("RET");
             break;
 
-        // ----- Expressões lógicas e relacionais (figuras 6.18 e 6.19) -----
+        // ----- Expressões lógicas e relacionais (figuras 7.23 e 7.24) -----
         case E_AND:
         case E_OR:
             expect(A(0), A(0).type, &bool_, "operando de " + std::string(rule == E_AND ? "&&" : "||") +
@@ -508,19 +620,24 @@ void Compiler::semantics(int rule, Attr& lhs) {
             expect(A(2), A(2).type, &bool_, "operando de " + std::string(rule == E_AND ? "&&" : "||") +
                                                 " deve ser boolean [ERR_BOOL_TYPE_EXPECTED]");
             lhs.type = &bool_;
+            emit(rule == E_AND ? "AND" : "OR");
             break;
-        case L_LT: case L_GT: case L_LE: case L_GE: case L_EQ: case L_NE:
+        case L_LT: case L_GT: case L_LE: case L_GE: case L_EQ: case L_NE: {
+            static const char* const OPS[] = {"LT", "GT", "LE", "GE", "EQ", "NEQ"};
             if (!checkTypes(A(0).type, A(2).type)) {
                 error(A(2), "de tipo", mismatch(A(0).type, A(2).type));
             }
             lhs.type = &bool_;
+            emit(OPS[rule - L_LT]);
             break;
+        }
 
-        // ----- Expressões aritméticas (figura 6.20) -----
+        // ----- Expressões aritméticas (figura 7.25) -----
         case R_PLUS:
         case R_MINUS:
         case Y_TIMES:
         case Y_DIVIDE: {
+            static const char* const OPS[] = {"ADD", "SUB", "MUL", "DIV"};
             static const char* const SYMBOLS[] = {"+", "-", "*", "/"};
             const int op = rule == R_PLUS ? 0 : rule == R_MINUS ? 1 : rule == Y_TIMES ? 2 : 3;
             if (!checkTypes(A(0).type, A(2).type)) {
@@ -533,14 +650,22 @@ void Compiler::semantics(int rule, Attr& lhs) {
                                            " [ERR_INVALID_TYPE]");
             }
             lhs.type = A(0).type;
+            emit(OPS[op]);
             break;
         }
-        case E_L: case L_R: case R_Y: case Y_F: case F_LV:
-            lhs.type = A(0).type;
+        case E_L: case L_R: case R_Y: case Y_F: case F_PAREN:
+            lhs.type = rule == F_PAREN ? A(1).type : A(0).type;
             break;
-        case F_PAREN: lhs.type = A(1).type; break;
 
-        // ----- Fatores (figura 6.21) -----
+        // ----- Fatores (figura 7.26) -----
+        case F_LV:
+            lhs.type = A(0).type;
+            if (A(0).strElem) {
+                emit(LIB_CHAR_AT);
+            } else {
+                emit("DE_REF", A(0).type ? A(0).type->size : 0);
+            }
+            break;
         case F_PRE_INC:
         case F_PRE_DEC:
         case F_POS_INC:
@@ -551,23 +676,33 @@ void Compiler::semantics(int rule, Attr& lhs) {
             expect(lv, lv.type, &int_, std::string(inc ? "++" : "--") +
                                            " exige variavel integer [ERR_INVALID_TYPE]");
             lhs.type = &int_;
+            emit("DUP");
+            emit("DUP");
+            emit("DE_REF", 1);
+            emit(inc ? "INC" : "DEC");
+            emit("STORE_REF", 1);
+            emit("DE_REF", 1);
+            if (!pre) emit(inc ? "DEC" : "INC");  // valor anterior à operação
             break;
         }
         case F_MINUS:
             expect(A(1), A(1).type, &int_, "'-' unario exige integer [ERR_INVALID_TYPE]");
             lhs.type = &int_;
+            emit("NEG");
             break;
         case F_NOT:
             expect(A(1), A(1).type, &bool_, "'!' exige boolean [ERR_INVALID_TYPE]");
             lhs.type = &bool_;
+            emit("NOT");
             break;
-        case F_TRUE: case F_FALSE: lhs.type = &bool_; break;  // figura 6.7
-        case F_CHR: lhs.type = &char_; break;
-        case F_STR: lhs.type = &string_; break;
-        case F_NUM: lhs.type = &int_; break;
-        case NUM_N: lhs.name = A(0).name; break;  // índice da constante (tamanho de array)
+        case F_TRUE: lhs.type = &bool_; emit("LOAD_TRUE"); break;    // figura 7.7
+        case F_FALSE: lhs.type = &bool_; emit("LOAD_FALSE"); break;
+        case F_CHR: lhs.type = &char_; emit("LOAD_CONST", A(0).name); break;
+        case F_STR: lhs.type = &string_; emit("LOAD_CONST", A(0).name); break;
+        case F_NUM: lhs.type = &int_; emit("LOAD_CONST", A(0).name); break;
+        case CHR_C: case STR_S: case NUM_N: lhs.name = A(0).name; break;
 
-        // ----- Chamada de função (figura 6.23) -----
+        // ----- Chamada de função (figuras 6.23 e 7.28) -----
         case MC_EMPTY: {  // IDU . MC
             Object* f = left(0).obj;
             lhs.obj = f;
@@ -595,19 +730,22 @@ void Compiler::semantics(int rule, Attr& lhs) {
             lhs.count = A(0).count;
             checkArgument(lhs, A(2));
             break;
-        case F_CALL:  // IDU MC ( LE )
+        case F_CALL: {  // IDU MC ( LE )
             lhs.type = A(1).type;
             if (!A(3).err && static_cast<std::size_t>(A(3).count) < A(3).obj->list.size()) {
                 error(A(4), "de tipo", "argumentos de menos na chamada de " +
                                            idName(A(1).obj->name) + " [ERR_TOO_FEW_ARGS]");
             }
+            emit("CALL", A(1).obj->index);
             break;
+        }
 
-        // ----- Left-values (figura 6.22) -----
+        // ----- Left-values (figura 7.27) -----
         case LV_IDU: {
             const Object* p = A(0).obj;
             if (p->kind == VAR_ || p->kind == PARAM_) {
                 lhs.type = p->type;
+                emit("LOAD_REF", p->index);
             } else {
                 if (p->kind != UNIVERSAL_) {
                     error(A(0), "de tipo", idName(p->name) + " nao e variavel [ERR_KIND_NOT_VAR]");
@@ -629,6 +767,7 @@ void Compiler::semantics(int rule, Attr& lhs) {
             for (const Object* field : t->list) {
                 if (field->name == A(2).name) {
                     lhs.type = field->type;
+                    emit("ADD", field->index);
                     break;
                 }
             }
@@ -641,10 +780,13 @@ void Compiler::semantics(int rule, Attr& lhs) {
         case LV_INDEX: {  // LV [ E ]
             const Object* t = A(0).type;
             expect(A(2), A(2).type, &int_, "indice deve ser integer [ERR_INVALID_INDEX_TYPE]");
-            if (t == &string_) {
+            if (t == &string_) {  // caractere: a referência e o índice ficam na pilha
                 lhs.type = &char_;
+                lhs.strElem = true;
             } else if (t != nullptr && t->kind == ARRAY_TYPE_) {
                 lhs.type = t->type;
+                emit("MUL", t->type ? t->type->size : 0);
+                emit("ADD");
             } else {
                 if (t != &universal_) {
                     error(A(1), "de tipo", "'[]' aplicado a " + typeName(t) +
@@ -655,7 +797,7 @@ void Compiler::semantics(int rule, Attr& lhs) {
             break;
         }
 
-        default:  // regras sem ação: P, LDE, DE, B, LDV, LS, TRUE, FALSE, CHR, STR e a aumentada
+        default:  // regras sem ação: P, LDE, DE, B, LDV, LS, TRUE, FALSE e a aumentada
             break;
     }
 }
@@ -673,6 +815,6 @@ const LalrTable& sslParseTable() {
     return table;
 }
 
-std::vector<std::string> analyze(const std::vector<Token>& tokens, const Lexer& lexer) {
+CompileResult compile(const std::vector<Token>& tokens, const Lexer& lexer) {
     return Compiler(lexer).run(tokens);
 }
